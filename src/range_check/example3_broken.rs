@@ -56,10 +56,12 @@ impl<F: FieldExt, const NUM_BITS: usize, const RANGE: usize> RangeCheckConfig<F,
             let num_bits = meta.query_advice(num_bits, Rotation::cur());
             let value = meta.query_advice(value, Rotation::cur());
 
+            let num_bits_with_default = q_lookup.clone() * num_bits + ((Expression::Constant(F::one())) - q_lookup.clone());
+
             // THIS IS BROKEN!!!!!!
             // Hint: consider the case where q_lookup = 0. What are our input expressions to the lookup argument then?
             vec![
-                (q_lookup.clone() * num_bits, table.num_bits),
+                (num_bits_with_default, table.num_bits),
                 (q_lookup * value, table.value),
             ]
         });

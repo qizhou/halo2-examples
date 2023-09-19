@@ -47,7 +47,7 @@ impl<F: FieldExt> DecomposeConfig<F> {
             let value_high = meta.query_advice(value_high, Rotation::cur());
 
             let range_check = |value: Expression<F>| {
-                (0..2).fold(value.clone(), |expr, i| {
+                (1..2).fold(value.clone(), |expr, i| {
                     expr * (Expression::Constant(F::from(i as u64)) - value.clone())
                 })
             };
