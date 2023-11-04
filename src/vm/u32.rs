@@ -58,14 +58,14 @@ pub(crate) struct U32Constrained<F: FieldExt> {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct U32CheckConfig<F: FieldExt> {
+pub(crate) struct U32CheckConfig<F: FieldExt, const NUM_LIMBS: usize> {
     q_lookup: Selector,
     value: Column<Advice>,
     limbs: Vec<Column<Advice>>,
     tables: Vec<RangeTableConfig<F, 8, 256>>,
 }
 
-impl<F: FieldExt> U32CheckConfig<F> {
+impl<F: FieldExt, const NUM_LIMBS: usize> U32CheckConfig<F, NUM_LIMBS> {
     pub fn configure(
         meta: &mut ConstraintSystem<F>,
         q_lookup: Selector,
@@ -129,7 +129,6 @@ impl<F: FieldExt> U32CheckConfig<F> {
                 let assigned_value =
                     region.assign_advice(|| "value", self.value, offset, || value)?;
 
-                // let assigned_limbs = limbs.iter().map(|x| region.assign_advice(|| "value", self.value, offset, || value)?).collect();
                 let mut assigned_limbs: Vec<AssignedCell<Assigned<F>, F>> = vec![];
                 for i in 0..limbs.len() {
                     let assigend_limb =
@@ -144,15 +143,6 @@ impl<F: FieldExt> U32CheckConfig<F> {
             },
         )
     }
-
-    // pub fn assign_value(
-    //     &self,
-    //     mut layouter: impl Layouter<F>,
-    //     value: Value<Assigned<F>>,
-    //     limbs: Vec<Value<Assigned<F>>>,
-    // ) -> Result<U32Constrained<F>, Error> {
-
-    // }
 }
 
 #[cfg(test)]
@@ -173,7 +163,7 @@ mod tests {
     }
 
     impl<F: FieldExt, const NUM_LIMBS: usize> Circuit<F> for MyCircuit<F, NUM_LIMBS> {
-        type Config = U32CheckConfig<F>;
+        type Config = U32CheckConfig<F, NUM_LIMBS>;
         type FloorPlanner = V1;
 
         fn without_witnesses(&self) -> Self {
