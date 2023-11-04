@@ -2,7 +2,7 @@ use std::{marker::PhantomData, vec};
 
 use halo2_proofs::{
     arithmetic::FieldExt,
-    circuit::{AssignedCell, Layouter, Value},
+    circuit::{AssignedCell, Layouter, Region, Value},
     plonk::{Advice, Assigned, Column, ConstraintSystem, Error, Expression, Selector, TableColumn},
     poly::Rotation,
 };
@@ -119,29 +119,42 @@ impl<F: FieldExt, const NUM_LIMBS: usize> U32CheckConfig<F, NUM_LIMBS> {
     ) -> Result<U32Constrained<F>, Error> {
         layouter.assign_region(
             || "Assign value",
-            |mut region| {
-                let offset = 0;
-
-                // Enable q_lookup
-                self.q_lookup.enable(&mut region, offset)?;
-
-                // Assign value
-                let assigned_value =
-                    region.assign_advice(|| "value", self.value, offset, || value)?;
-
-                let mut assigned_limbs: Vec<AssignedCell<Assigned<F>, F>> = vec![];
-                for i in 0..limbs.len() {
-                    let assigend_limb =
-                        region.assign_advice(|| "value", self.limbs[i], offset, || limbs[i])?;
-                    assigned_limbs.push(assigend_limb);
-                }
-
-                Ok(U32Constrained {
-                    assigned_value,
-                    assigned_limbs,
-                })
-            },
+            |mut region| self.assign_region(&mut region, value, limbs.clone()),
         )
+    }
+
+    pub fn assign_region(
+        &self,
+        region: &mut Region<'_, F>,
+        value: Value<Assigned<F>>,
+        limbs: Vec<Value<Assigned<F>>>,
+    ) -> Result<U32Constrained<F>, Error> {
+        let offset = 0;
+
+        // Enable q_lookup
+        self.q_lookup.enable(region, offset)?;
+
+        // Assign value
+        let assigned_value = region.assign_advice(|| "value", self.value, offset, || value)?;
+
+        let mut assigned_limbs: Vec<AssignedCell<Assigned<F>, F>> = vec![];
+        for i in 0..limbs.len() {
+            let assigend_limb =
+                region.assign_advice(|| "value", self.limbs[i], offset, || limbs[i])?;
+            assigned_limbs.push(assigend_limb);
+        }
+
+        Ok(U32Constrained {
+            assigned_value,
+            assigned_limbs,
+        })
+    }
+
+    pub fn load_tables(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
+        for table in self.tables.iter() {
+            table.load(layouter)?;
+        }
+        Ok(())
     }
 }
 
@@ -182,9 +195,7 @@ mod tests {
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
-            for table in config.tables.iter() {
-                table.load(&mut layouter)?;
-            }
+            config.load_tables(&mut layouter)?;
 
             config.assign(
                 layouter.namespace(|| "Assign value"),
