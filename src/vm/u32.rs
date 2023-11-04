@@ -123,14 +123,13 @@ impl<F: FieldExt, const NUM_LIMBS: usize> U32CheckConfig<F, NUM_LIMBS> {
         )
     }
 
-    pub fn assign_region(
+    pub fn assign_region_x(
         &self,
         region: &mut Region<'_, F>,
         value: Value<Assigned<F>>,
         limbs: Vec<Value<Assigned<F>>>,
+        offset: usize,
     ) -> Result<U32Constrained<F>, Error> {
-        let offset = 0;
-
         // Enable q_lookup
         self.q_lookup.enable(region, offset)?;
 
@@ -148,6 +147,15 @@ impl<F: FieldExt, const NUM_LIMBS: usize> U32CheckConfig<F, NUM_LIMBS> {
             assigned_value,
             assigned_limbs,
         })
+    }
+
+    pub fn assign_region(
+        &self,
+        region: &mut Region<'_, F>,
+        value: Value<Assigned<F>>,
+        limbs: Vec<Value<Assigned<F>>>,
+    ) -> Result<U32Constrained<F>, Error> {
+        self.assign_region_x(region, value, limbs, 0)
     }
 
     pub fn load_tables(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
