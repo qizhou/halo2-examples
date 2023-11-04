@@ -52,13 +52,13 @@ impl<F: FieldExt, const NUM_BITS: usize, const RANGE: usize> RangeTableConfig<F,
 
 #[derive(Debug, Clone)]
 /// A range-constrained value in the circuit produced by the RangeCheckConfig.
-struct U32Constrained<F: FieldExt> {
+pub(crate) struct U32Constrained<F: FieldExt> {
     assigned_value: AssignedCell<Assigned<F>, F>,
     assigned_limbs: Vec<AssignedCell<Assigned<F>, F>>,
 }
 
 #[derive(Debug, Clone)]
-struct U32CheckConfig<F: FieldExt> {
+pub(crate) struct U32CheckConfig<F: FieldExt> {
     q_lookup: Selector,
     value: Column<Advice>,
     limbs: Vec<Column<Advice>>,
@@ -68,10 +68,11 @@ struct U32CheckConfig<F: FieldExt> {
 impl<F: FieldExt> U32CheckConfig<F> {
     pub fn configure(
         meta: &mut ConstraintSystem<F>,
+        q_lookup: Selector,
         value: Column<Advice>,
         limbs: Vec<Column<Advice>>,
     ) -> Self {
-        let q_lookup = meta.complex_selector();
+        // let q_lookup: Selector = meta.complex_selector();
         let tables: Vec<RangeTableConfig<F, 8, 256>> = (0..limbs.len())
             .into_iter()
             .map(|_| RangeTableConfig::configure(meta))
@@ -180,9 +181,10 @@ mod tests {
         }
 
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+            let q_lookup = meta.complex_selector();
             let value = meta.advice_column();
             let limbs = (0..NUM_LIMBS).map(|_| meta.advice_column()).collect();
-            U32CheckConfig::configure(meta, value, limbs)
+            U32CheckConfig::configure(meta, q_lookup, value, limbs)
         }
 
         fn synthesize(
@@ -238,6 +240,27 @@ mod tests {
             let prover = MockProver::run(k, &circuit, vec![]).unwrap();
             prover.assert_satisfied();
         }
+
+        // Failure cases
+        {
+            let circuit = MyCircuit::<Fp, 1> {
+                value: Value::known(Fp::from(256 as u64).into()),
+                limbs: vec![Value::known(Fp::from(256 as u64).into())],
+            };
+
+            let prover = MockProver::run(k, &circuit, vec![]).unwrap();
+            assert!(prover.verify().is_err());
+        }
+
+        {
+            let circuit = MyCircuit::<Fp, 1> {
+                value: Value::known(Fp::from(123 as u64).into()),
+                limbs: vec![Value::known(Fp::from(122 as u64).into())],
+            };
+
+            let prover = MockProver::run(k, &circuit, vec![]).unwrap();
+            assert!(prover.verify().is_err())
+        }
     }
 
     #[test]
@@ -268,6 +291,46 @@ mod tests {
 
             let prover = MockProver::run(k, &circuit, vec![]).unwrap();
             prover.assert_satisfied();
+        }
+
+        {
+            let circuit = MyCircuit::<Fp, 2> {
+                value: Value::known(Fp::from(256 as u64).into()),
+                limbs: vec![
+                    Value::known(Fp::from(0 as u64).into()),
+                    Value::known(Fp::from(1 as u64).into()),
+                ],
+            };
+
+            let prover = MockProver::run(k, &circuit, vec![]).unwrap();
+            prover.assert_satisfied();
+        }
+
+        // Failure cases
+        {
+            let circuit = MyCircuit::<Fp, 2> {
+                value: Value::known(Fp::from(256 as u64).into()),
+                limbs: vec![
+                    Value::known(Fp::from(256 as u64).into()),
+                    Value::known(Fp::from(0 as u64).into()),
+                ],
+            };
+
+            let prover = MockProver::run(k, &circuit, vec![]).unwrap();
+            assert!(prover.verify().is_err())
+        }
+
+        {
+            let circuit = MyCircuit::<Fp, 2> {
+                value: Value::known(Fp::from(256 as u64).into()),
+                limbs: vec![
+                    Value::known(Fp::from(1 as u64).into()),
+                    Value::known(Fp::from(1 as u64).into()),
+                ],
+            };
+
+            let prover = MockProver::run(k, &circuit, vec![]).unwrap();
+            assert!(prover.verify().is_err())
         }
     }
 
