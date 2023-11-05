@@ -14,9 +14,9 @@ use super::u32::{U32CheckConfig, U32Constrained};
 // last_write == 1 for the address's last write
 pub(crate) struct MemConstrained<F: FieldExt> {
     addr: U32Constrained<F>,
-    addr_diff: U32Constrained<F>,
+    addr_diff: U32Constrained<F>,  // = addr - prev_addr
     eid: U32Constrained<F>,
-    eid_diff: U32Constrained<F>,
+    eid_diff_m1: U32Constrained<F>,  // = eid - prev_eid - 1 (if addr == prev_addr)
     last_write: AssignedCell<Assigned<F>, F>,
     addr_diff_inv: AssignedCell<Assigned<F>, F>,
 }
@@ -28,7 +28,7 @@ struct MemCheckConfig<F: FieldExt, const NUM_LIMBS: usize> {
     addr: U32CheckConfig<F, NUM_LIMBS>,
     addr_diff: U32CheckConfig<F, NUM_LIMBS>,
     eid: U32CheckConfig<F, NUM_LIMBS>,
-    eid_diff: U32CheckConfig<F, NUM_LIMBS>,
+    eid_diff_m1: U32CheckConfig<F, NUM_LIMBS>,
     last_write: Column<Advice>,
     addr_diff_inv: Column<Advice>,
 }
@@ -39,7 +39,7 @@ impl<F: FieldExt, const NUM_LIMBS: usize> MemCheckConfig<F, NUM_LIMBS> {
         addr: Column<Advice>,
         addr_diff: Column<Advice>,
         eid: Column<Advice>,
-        eid_diff: Column<Advice>,
+        eid_diff_m1: Column<Advice>,
         last_write: Column<Advice>,
     ) -> Self {
         let q_sel = meta.complex_selector();
@@ -50,8 +50,8 @@ impl<F: FieldExt, const NUM_LIMBS: usize> MemCheckConfig<F, NUM_LIMBS> {
         let addr_diff_chip = U32CheckConfig::configure(meta, q_int, addr_diff, addr_diff_limbs);
         let eid_limbs = (0..NUM_LIMBS).map(|_| meta.advice_column()).collect();
         let eid_chip = U32CheckConfig::configure(meta, q_int, eid, eid_limbs);
-        let eid_diff_limbs = (0..NUM_LIMBS).map(|_| meta.advice_column()).collect();
-        let eid_diff_chip = U32CheckConfig::configure(meta, q_int, eid_diff, eid_diff_limbs);
+        let eid_diff_m1_limbs = (0..NUM_LIMBS).map(|_| meta.advice_column()).collect();
+        let eid_diff_m1_chip = U32CheckConfig::configure(meta, q_int, eid_diff_m1, eid_diff_m1_limbs);
         let addr_diff_inv = meta.advice_column();
 
         meta.create_gate("mem check", |meta| {
@@ -65,7 +65,7 @@ impl<F: FieldExt, const NUM_LIMBS: usize> MemCheckConfig<F, NUM_LIMBS> {
             let eid_prev = meta.query_advice(eid, Rotation::prev());
             let eid = meta.query_advice(eid, Rotation::cur());
 
-            let eid_diff = meta.query_advice(eid_diff, Rotation::cur());
+            let eid_diff_m1 = meta.query_advice(eid_diff_m1, Rotation::cur());
 
             let last_write_prev = meta.query_advice(last_write, Rotation::prev());
 
@@ -78,7 +78,7 @@ impl<F: FieldExt, const NUM_LIMBS: usize> MemCheckConfig<F, NUM_LIMBS> {
                 q_sel.clone() * (addr.clone() - addr_prev.clone() - addr_diff.clone()), // addr must be non-decreasing
                 q_sel.clone()
                     * is_addr_diff_zero_expr.clone()
-                    * (eid - eid_prev - Expression::Constant(F::one()) - eid_diff), // if addr == prev_addr, then eid must be increasing
+                    * (eid - eid_prev - Expression::Constant(F::one()) - eid_diff_m1), // if addr == prev_addr, then eid must be increasing
                 q_sel.clone() * is_addr_diff_zero_expr.clone() * last_write_prev.clone(), // if addr == prev_addr, then last_write_prev == 0
                 q_sel.clone()
                     * addr_diff.clone()
@@ -93,7 +93,7 @@ impl<F: FieldExt, const NUM_LIMBS: usize> MemCheckConfig<F, NUM_LIMBS> {
             addr: addr_chip,
             addr_diff: addr_diff_chip,
             eid: eid_chip,
-            eid_diff: eid_diff_chip,
+            eid_diff_m1: eid_diff_m1_chip,
             last_write,
             addr_diff_inv,
         }
@@ -108,8 +108,8 @@ impl<F: FieldExt, const NUM_LIMBS: usize> MemCheckConfig<F, NUM_LIMBS> {
         addr_diff_limbs: Vec<Value<Assigned<F>>>,
         eid_value: Value<Assigned<F>>,
         eid_limbs: Vec<Value<Assigned<F>>>,
-        eid_diff_value: Value<Assigned<F>>,
-        eid_diff_limbs: Vec<Value<Assigned<F>>>,
+        eid_diff_m1_value: Value<Assigned<F>>,
+        eid_diff_m1_limbs: Vec<Value<Assigned<F>>>,
         last_write: Value<Assigned<F>>,
         offset: usize,
     ) -> Result<MemConstrained<F>, Error> {
@@ -131,10 +131,10 @@ impl<F: FieldExt, const NUM_LIMBS: usize> MemCheckConfig<F, NUM_LIMBS> {
             eid: self
                 .eid
                 .assign_region_x(region, eid_value, eid_limbs, offset)?,
-            eid_diff: self.eid_diff.assign_region_x(
+            eid_diff_m1: self.eid_diff_m1.assign_region_x(
                 region,
-                eid_diff_value,
-                eid_diff_limbs,
+                eid_diff_m1_value,
+                eid_diff_m1_limbs,
                 offset,
             )?,
             last_write: region.assign_advice(
@@ -161,8 +161,8 @@ impl<F: FieldExt, const NUM_LIMBS: usize> MemCheckConfig<F, NUM_LIMBS> {
         addr_diff_limbs: Vec<Value<Assigned<F>>>,
         eid_value: Value<Assigned<F>>,
         eid_limbs: Vec<Value<Assigned<F>>>,
-        eid_diff_value: Value<Assigned<F>>,
-        eid_diff_limbs: Vec<Value<Assigned<F>>>,
+        eid_diff_m1_value: Value<Assigned<F>>,
+        eid_diff_m1_limbs: Vec<Value<Assigned<F>>>,
         last_write: Value<Assigned<F>>,
     ) -> Result<MemConstrained<F>, Error> {
         let offset: usize = 0;
@@ -175,9 +175,9 @@ impl<F: FieldExt, const NUM_LIMBS: usize> MemCheckConfig<F, NUM_LIMBS> {
                 .addr_diff
                 .assign_region(region, addr_diff_value, addr_diff_limbs)?,
             eid: self.eid.assign_region(region, eid_value, eid_limbs)?,
-            eid_diff: self
-                .eid_diff
-                .assign_region(region, eid_diff_value, eid_diff_limbs)?,
+            eid_diff_m1: self
+                .eid_diff_m1
+                .assign_region(region, eid_diff_m1_value, eid_diff_m1_limbs)?,
             last_write: region.assign_advice(
                 || "last_write",
                 self.last_write,
@@ -197,7 +197,7 @@ impl<F: FieldExt, const NUM_LIMBS: usize> MemCheckConfig<F, NUM_LIMBS> {
         self.addr.load_tables(layouter)?;
         self.addr_diff.load_tables(layouter)?;
         self.eid.load_tables(layouter)?;
-        self.eid_diff.load_tables(layouter)?;
+        self.eid_diff_m1.load_tables(layouter)?;
         Ok(())
     }
 }
@@ -221,8 +221,8 @@ mod tests {
         eid_limbs: Vec<Value<Assigned<F>>>,
         addr_diff: Value<Assigned<F>>,
         addr_diff_limbs: Vec<Value<Assigned<F>>>,
-        eid_diff: Value<Assigned<F>>,
-        eid_diff_limbs: Vec<Value<Assigned<F>>>,
+        eid_diff_m1: Value<Assigned<F>>,
+        eid_diff_m1_limbs: Vec<Value<Assigned<F>>>,
         last_write: Value<Assigned<F>>,
     }
 
@@ -254,14 +254,14 @@ mod tests {
             let addr_value = meta.advice_column();
             let addr_diff_value = meta.advice_column();
             let eid_value = meta.advice_column();
-            let eid_diff_value = meta.advice_column();
+            let eid_diff_m1_value = meta.advice_column();
             let last_write = meta.advice_column();
             MemCheckConfig::configure(
                 meta,
                 addr_value,
                 addr_diff_value,
                 eid_value,
-                eid_diff_value,
+                eid_diff_m1_value,
                 last_write,
             )
         }
@@ -284,8 +284,8 @@ mod tests {
                         self.rows[0].addr_diff_limbs.clone(),
                         self.rows[0].eid,
                         self.rows[0].eid_limbs.clone(),
-                        self.rows[0].eid_diff,
-                        self.rows[0].eid_diff_limbs.clone(),
+                        self.rows[0].eid_diff_m1,
+                        self.rows[0].eid_diff_m1_limbs.clone(),
                         self.rows[0].last_write,
                     )?;
 
@@ -298,8 +298,8 @@ mod tests {
                             self.rows[offset].addr_diff_limbs.clone(),
                             self.rows[offset].eid,
                             self.rows[offset].eid_limbs.clone(),
-                            self.rows[offset].eid_diff,
-                            self.rows[offset].eid_diff_limbs.clone(),
+                            self.rows[offset].eid_diff_m1,
+                            self.rows[offset].eid_diff_m1_limbs.clone(),
                             self.rows[offset].last_write,
                             offset,
                         )?;
@@ -328,8 +328,8 @@ mod tests {
                     eid_limbs: vec![Value::known(Fp::from(42 as u64).into())],
                     addr_diff: Value::known(Fp::from(46 as u64).into()),
                     addr_diff_limbs: vec![Value::known(Fp::from(46 as u64).into())],
-                    eid_diff: Value::known(Fp::from(41 as u64).into()),
-                    eid_diff_limbs: vec![Value::known(Fp::from(41 as u64).into())],
+                    eid_diff_m1: Value::known(Fp::from(41 as u64).into()),
+                    eid_diff_m1_limbs: vec![Value::known(Fp::from(41 as u64).into())],
                     last_write: Value::known(Fp::from(0 as u64).into()),
                 }],
             };
@@ -348,8 +348,8 @@ mod tests {
                         eid_limbs: vec![Value::known(Fp::from(42 as u64).into())],
                         addr_diff: Value::known(Fp::from(46 as u64).into()),
                         addr_diff_limbs: vec![Value::known(Fp::from(46 as u64).into())],
-                        eid_diff: Value::known(Fp::from(41 as u64).into()),
-                        eid_diff_limbs: vec![Value::known(Fp::from(41 as u64).into())],
+                        eid_diff_m1: Value::known(Fp::from(41 as u64).into()),
+                        eid_diff_m1_limbs: vec![Value::known(Fp::from(41 as u64).into())],
                         last_write: Value::known(Fp::from(1 as u64).into()),
                     },
                     MyCircuitRow {
@@ -359,8 +359,8 @@ mod tests {
                         eid_limbs: vec![Value::known(Fp::from(20 as u64).into())],
                         addr_diff: Value::known(Fp::from(2 as u64).into()),
                         addr_diff_limbs: vec![Value::known(Fp::from(2 as u64).into())],
-                        eid_diff: Value::known(Fp::from(0 as u64).into()),
-                        eid_diff_limbs: vec![Value::known(Fp::from(0 as u64).into())],
+                        eid_diff_m1: Value::known(Fp::from(0 as u64).into()),
+                        eid_diff_m1_limbs: vec![Value::known(Fp::from(0 as u64).into())],
                         last_write: Value::known(Fp::from(0 as u64).into()),
                     },
                 ],
@@ -381,8 +381,8 @@ mod tests {
                         eid_limbs: vec![Value::known(Fp::from(42 as u64).into())],
                         addr_diff: Value::known(Fp::from(46 as u64).into()),
                         addr_diff_limbs: vec![Value::known(Fp::from(46 as u64).into())],
-                        eid_diff: Value::known(Fp::from(41 as u64).into()),
-                        eid_diff_limbs: vec![Value::known(Fp::from(41 as u64).into())],
+                        eid_diff_m1: Value::known(Fp::from(41 as u64).into()),
+                        eid_diff_m1_limbs: vec![Value::known(Fp::from(41 as u64).into())],
                         last_write: Value::known(Fp::from(0 as u64).into()),
                     },
                     MyCircuitRow {
@@ -392,8 +392,8 @@ mod tests {
                         eid_limbs: vec![Value::known(Fp::from(20 as u64).into())],
                         addr_diff: Value::known(Fp::from(2 as u64).into()),
                         addr_diff_limbs: vec![Value::known(Fp::from(2 as u64).into())],
-                        eid_diff: Value::known(Fp::from(0 as u64).into()),
-                        eid_diff_limbs: vec![Value::known(Fp::from(0 as u64).into())],
+                        eid_diff_m1: Value::known(Fp::from(0 as u64).into()),
+                        eid_diff_m1_limbs: vec![Value::known(Fp::from(0 as u64).into())],
                         last_write: Value::known(Fp::from(0 as u64).into()),
                     },
                 ],
@@ -413,8 +413,8 @@ mod tests {
                         eid_limbs: vec![Value::known(Fp::from(42 as u64).into())],
                         addr_diff: Value::known(Fp::from(46 as u64).into()),
                         addr_diff_limbs: vec![Value::known(Fp::from(46 as u64).into())],
-                        eid_diff: Value::known(Fp::from(41 as u64).into()),
-                        eid_diff_limbs: vec![Value::known(Fp::from(41 as u64).into())],
+                        eid_diff_m1: Value::known(Fp::from(41 as u64).into()),
+                        eid_diff_m1_limbs: vec![Value::known(Fp::from(41 as u64).into())],
                         last_write: Value::known(Fp::from(0 as u64).into()),
                     },
                     MyCircuitRow {
@@ -424,8 +424,8 @@ mod tests {
                         eid_limbs: vec![Value::known(Fp::from(77 as u64).into())],
                         addr_diff: Value::known(Fp::from(0 as u64).into()),
                         addr_diff_limbs: vec![Value::known(Fp::from(0 as u64).into())],
-                        eid_diff: Value::known(Fp::from(34 as u64).into()),
-                        eid_diff_limbs: vec![Value::known(Fp::from(34 as u64).into())],
+                        eid_diff_m1: Value::known(Fp::from(34 as u64).into()),
+                        eid_diff_m1_limbs: vec![Value::known(Fp::from(34 as u64).into())],
                         last_write: Value::known(Fp::from(1 as u64).into()),
                     },
                     MyCircuitRow {
@@ -435,8 +435,8 @@ mod tests {
                         eid_limbs: vec![Value::known(Fp::from(20 as u64).into())],
                         addr_diff: Value::known(Fp::from(2 as u64).into()),
                         addr_diff_limbs: vec![Value::known(Fp::from(2 as u64).into())],
-                        eid_diff: Value::known(Fp::from(0 as u64).into()),
-                        eid_diff_limbs: vec![Value::known(Fp::from(0 as u64).into())],
+                        eid_diff_m1: Value::known(Fp::from(0 as u64).into()),
+                        eid_diff_m1_limbs: vec![Value::known(Fp::from(0 as u64).into())],
                         last_write: Value::known(Fp::from(0 as u64).into()),
                     },
                 ],
@@ -457,8 +457,8 @@ mod tests {
                         eid_limbs: vec![Value::known(Fp::from(42 as u64).into())],
                         addr_diff: Value::known(Fp::from(46 as u64).into()),
                         addr_diff_limbs: vec![Value::known(Fp::from(46 as u64).into())],
-                        eid_diff: Value::known(Fp::from(41 as u64).into()),
-                        eid_diff_limbs: vec![Value::known(Fp::from(41 as u64).into())],
+                        eid_diff_m1: Value::known(Fp::from(41 as u64).into()),
+                        eid_diff_m1_limbs: vec![Value::known(Fp::from(41 as u64).into())],
                         last_write: Value::known(Fp::from(1 as u64).into()),
                     },
                     MyCircuitRow {
@@ -468,8 +468,8 @@ mod tests {
                         eid_limbs: vec![Value::known(Fp::from(77 as u64).into())],
                         addr_diff: Value::known(Fp::from(0 as u64).into()),
                         addr_diff_limbs: vec![Value::known(Fp::from(0 as u64).into())],
-                        eid_diff: Value::known(Fp::from(34 as u64).into()),
-                        eid_diff_limbs: vec![Value::known(Fp::from(34 as u64).into())],
+                        eid_diff_m1: Value::known(Fp::from(34 as u64).into()),
+                        eid_diff_m1_limbs: vec![Value::known(Fp::from(34 as u64).into())],
                         last_write: Value::known(Fp::from(1 as u64).into()),
                     },
                     MyCircuitRow {
@@ -479,8 +479,8 @@ mod tests {
                         eid_limbs: vec![Value::known(Fp::from(20 as u64).into())],
                         addr_diff: Value::known(Fp::from(2 as u64).into()),
                         addr_diff_limbs: vec![Value::known(Fp::from(2 as u64).into())],
-                        eid_diff: Value::known(Fp::from(0 as u64).into()),
-                        eid_diff_limbs: vec![Value::known(Fp::from(0 as u64).into())],
+                        eid_diff_m1: Value::known(Fp::from(0 as u64).into()),
+                        eid_diff_m1_limbs: vec![Value::known(Fp::from(0 as u64).into())],
                         last_write: Value::known(Fp::from(0 as u64).into()),
                     },
                 ],
