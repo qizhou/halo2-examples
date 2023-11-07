@@ -46,18 +46,19 @@ impl<F: FieldExt, const N_ROWS: usize> DynFibonacciChip<F, N_ROWS> {
             // row | col_a | col_b | col_c | selector | col_n | col_active
             //     |    a      b        c       s     |   n   |
             // Example steps = 3, N_ROWS = 6
-            //  0  |    1   |  1   |    2  |    1     |   3   |   1
+            //  0  |    1#  |  1#  |    2  |    1     |   3#  |   1
             //  1  |    1   |  2   |    3  |    1     |   2   |   1
             //  2  |    2   |  3   |    5  |    1     |   1   |   1
             //  3  |    3   |  5   |    5  |    1     |   0   |   0
             //  4  |    3   |  5   |    5* |    1     |   0   |   0
             //  5  |    x   |  x   |    x  |    0     |   0*  |   0
-            // (where * are output cells)
+            // (where * are output cells, and # are input cells)
             // List of constraints
             // 1. active must be in 0 or 1
             // 2. if active == 0, then active_next = 0
             // 3. n_next= n - active
             // 4. if active == 0, then c = b, else c = a + b
+            // 5. copies: a = b_prev, b = c_prev
             let s = meta.query_selector(selector);
             let a = meta.query_advice(col_a, Rotation::cur());
             let b = meta.query_advice(col_b, Rotation::cur());
