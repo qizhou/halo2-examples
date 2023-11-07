@@ -53,6 +53,11 @@ impl<F: FieldExt, const N_ROWS: usize> DynFibonacciChip<F, N_ROWS> {
             //  4  |    3   |  5   |    5* |    1     |   0   |   0
             //  5  |    x   |  x   |    x  |    0     |   0*  |   0
             // (where * are output cells)
+            // List of constraints
+            // 1. active must be in 0 or 1
+            // 2. if active == 0, then active_next = 0
+            // 3. n_next= n - active
+            // 4. if active == 0, then c = b, else c = a + b
             let s = meta.query_selector(selector);
             let a = meta.query_advice(col_a, Rotation::cur());
             let b = meta.query_advice(col_b, Rotation::cur());
@@ -69,8 +74,7 @@ impl<F: FieldExt, const N_ROWS: usize> DynFibonacciChip<F, N_ROWS> {
                     * (b.clone() - c.clone()), // if !active, c = b
                 s.clone()
                     * q_active.clone()
-                    * (n.clone() - n_next.clone() - Expression::Constant(F::one())), // if active, then n--
-                s.clone() * (Expression::Constant(F::one()) - q_active.clone()) * (n_next - n), // if !active, then n unchanged
+                    * (n.clone() - n_next.clone() - q_active.clone()), // n_next = n - active
                 s.clone() * q_active.clone() * (Expression::Constant(F::one()) - q_active.clone()), // q_active must be 0 or 1
                 s * (Expression::Constant(F::one()) - q_active) * q_active_next, // if !active, active_next = 0
             ]
