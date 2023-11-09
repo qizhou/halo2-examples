@@ -46,6 +46,7 @@ impl<F: FieldExt, const NUM_LIMBS: usize> MemOutputCheckConfig<F, NUM_LIMBS> {
             let addr_u = meta.query_advice(addr_u, Rotation::cur());
 
             vec![(q_sel.clone() * addr.clone(), addr_u.clone())]
+            // vec![(q_sel * addr_u, addr)]
             // vec![(q_sel.clone() * addr.clone(), addr_u.clone()), (q_sel * addr_u, addr)]
 
         });
@@ -146,7 +147,7 @@ mod tests {
                 || "first row",
                 |mut region| {
 
-                    for offset in 1..NUM_ROWS {
+                    for offset in 0..NUM_ROWS {
                         config.assign_row_x(
                             &mut region,
                             self.rows[offset].addr,
@@ -210,7 +211,7 @@ mod tests {
             };
 
             let prover = MockProver::run(k, &circuit, vec![]).unwrap();
-            assert!(prover.verify().is_err());
+            prover.assert_satisfied();
         }
 
         // {
